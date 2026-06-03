@@ -448,21 +448,38 @@ Règles :
   .then(d=>{
     clearInterval(iv);
     const pb=$('pbar');if(pb)pb.style.width='100%';
+    // Affiche l'erreur API si présente
+    if(d.error){
+      scanStep=0;render();
+      toast('❌ Erreur API : '+d.error.message,'var(--red)');
+      return;
+    }
     const text=d.content?.[0]?.text||'';
+    // Tentative 1 : JSON direct
+    let parsed=null;
     try{
       const clean=text.replace(/```json|```/g,'').trim();
-      const data=JSON.parse(clean);
+      // Cherche le premier { jusqu'au dernier }
+      const start=clean.indexOf('{');
+      const end=clean.lastIndexOf('}');
+      if(start!==-1&&end!==-1){
+        parsed=JSON.parse(clean.slice(start,end+1));
+      }
+    }catch(e){}
+    if(parsed&&parsed.produits&&parsed.produits.length){
       scanStep=0;render();
-      showScanResults(data);
-    }catch(e){
-      scanStep=0;render();
-      toast('⚠️ Facture peu lisible — essayez une meilleure photo','var(--orange)');
+      showScanResults(parsed);
+      return;
     }
+    // Tentative 2 : extraire ce que Claude a trouvé même sans JSON
+    // Affiche la réponse brute pour débogage
+    scanStep=0;render();
+    showRawResponse(text);
   })
-  .catch(()=>{
+  .catch((err)=>{
     clearInterval(iv);
     scanStep=0;render();
-    toast('❌ Erreur réseau — vérifiez votre connexion','var(--red)');
+    toast('❌ Erreur réseau : '+err.message,'var(--red)');
   });
 }
 
@@ -495,6 +512,26 @@ function showScanResults(data){
     <div style="font-size:13px;color:var(--muted);margin-bottom:14px">Fournisseur détecté : <strong style="color:var(--cream)">${data.fournisseur||'Non détecté'}</strong><br>Vérifiez et corrigez si nécessaire avant d'enregistrer.</div>
     <div id="scan-rows">${rows}</div>
     <button class="btn-gold" onclick="saveScanResults(${prods.length},'${(data.fournisseur||'').replace(/'/g,"\\'")}')">✅ Tout enregistrer dans la mercuriale</button>
+  </div>`;
+  openModal(html);
+}
+
+function showRawResponse(text){
+  // Affiche la réponse brute de Claude pour débogage
+  const html=`
+  <div class="handle"></div>
+  <div class="sheet-head">
+    <div style="font-size:22px">🔍</div>
+    <div class="title">Réponse brute Claude</div>
+    <button class="cls" onclick="closeModal()">✕</button>
+  </div>
+  <div class="sheet-body">
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Claude a répondu mais le format n'est pas JSON standard. Voici sa réponse — copiez les produits manuellement ou réessayez.</div>
+    <div style="background:var(--s2);border-radius:10px;padding:14px;font-size:12px;line-height:1.7;color:var(--cream);max-height:300px;overflow-y:auto;white-space:pre-wrap;word-break:break-word">${text.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
+    <div style="display:flex;gap:10px;margin-top:14px">
+      <button class="btn-sm g" style="flex:1" onclick="closeModal();showManualEntry()">✏️ Saisie manuelle</button>
+      <button class="btn-sm o" onclick="closeModal()">Fermer</button>
+    </div>
   </div>`;
   openModal(html);
 }
