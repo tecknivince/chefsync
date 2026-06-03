@@ -349,13 +349,18 @@ function renderScan(){
 function renderScan0(){
   return `
   <div style="height:16px"></div>
-  <div style="margin:0 18px;background:var(--s1);border:2px dashed rgba(200,168,75,.3);border-radius:20px;padding:36px 20px;text-align:center;cursor:pointer" onclick="startScan()">
+  <!-- INPUT CAMÉRA CACHÉ -->
+  <input type="file" id="cam-input" accept="image/*" capture="environment" style="display:none" onchange="handlePhoto(this)"/>
+  <input type="file" id="gal-input" accept="image/*" style="display:none" onchange="handlePhoto(this)"/>
+
+  <div style="margin:0 18px;background:var(--s1);border:2px dashed rgba(200,168,75,.3);border-radius:20px;padding:36px 20px;text-align:center;cursor:pointer" onclick="document.getElementById('cam-input').click()">
     <div style="width:72px;height:72px;background:rgba(200,168,75,.1);border:1px solid var(--border);border-radius:20px;display:flex;align-items:center;justify-content:center;font-size:32px;margin:0 auto 16px">📷</div>
     <div style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:600;margin-bottom:8px">Scanner une facture</div>
-    <div style="font-size:13px;color:var(--muted);line-height:1.6">Photographiez votre bon de livraison.<br>L'IA extrait produits, prix et quantités.</div>
+    <div style="font-size:13px;color:var(--muted);line-height:1.6">Photographiez votre bon de livraison.<br>Claude IA extrait automatiquement produits, prix et quantités.</div>
   </div>
   <div style="padding:14px 18px;display:flex;flex-direction:column;gap:10px">
-    <button class="btn-gold" onclick="startScan()">📷 Prendre une photo</button>
+    <button class="btn-gold" onclick="document.getElementById('cam-input').click()">📷 Prendre une photo</button>
+    <button class="btn-out" onclick="document.getElementById('gal-input').click()">🖼️ Choisir depuis la galerie</button>
     <button class="btn-out" onclick="showManualEntry()">✏️ Saisie manuelle</button>
   </div>
   ${products.length?`
@@ -367,44 +372,156 @@ function renderScan0(){
     <div style="font-size:15px;font-weight:700;color:var(--goldl)">${p.prix||'—'}€</div>
   </div>`).join('')}`:''}`;
 }
+
 function renderScan1(){
   return `
   <div style="height:20px"></div>
   <div class="card card-p" style="margin:0 18px">
     <div class="row" style="margin-bottom:14px">
       <div style="width:44px;height:54px;background:var(--s3);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">📄</div>
-      <div><div style="font-weight:600;font-size:14px;margin-bottom:3px">Analyse IA en cours…</div><div style="font-size:12px;color:var(--muted)">Extraction des données facture</div></div>
+      <div><div style="font-weight:600;font-size:14px;margin-bottom:3px">Claude analyse la facture…</div><div style="font-size:12px;color:var(--muted)">Extraction des produits en cours</div></div>
     </div>
     <div style="background:var(--s3);border-radius:100px;height:6px;overflow:hidden;margin-bottom:8px">
-      <div id="pbar" style="height:100%;background:linear-gradient(90deg,var(--gold),var(--goldl));border-radius:100px;transition:width .15s;width:0%"></div>
+      <div id="pbar" style="height:100%;background:linear-gradient(90deg,var(--gold),var(--goldl));border-radius:100px;transition:width .4s;width:0%"></div>
     </div>
-    <div id="pstep" style="font-size:12px;color:var(--muted)">Initialisation…</div>
+    <div id="pstep" style="font-size:12px;color:var(--muted)">Envoi de l'image à Claude Vision…</div>
   </div>`;
 }
 
-function startScan(){
+function handlePhoto(input){
+  if(!input.files||!input.files[0])return;
   if(!apiKey){
     toast('⚙️ Configurez votre clé API d\'abord','var(--orange)');
     setTimeout(showSettings,500);return;
   }
-  scanStep=1;render();
-  const steps=['Analyse de l\'image…','Détection des lignes…','Extraction des produits…','Vérification des prix…','Finalisation…'];
-  let p=0,s=0;
-  const iv=setInterval(()=>{
-    p+=6;
-    const pb=$('pbar'),ps=$('pstep');
-    if(pb)pb.style.width=Math.min(p,95)+'%';
-    if(ps&&s<steps.length&&p>s*20){ps.textContent=steps[s];s++;}
-    if(p>=95){clearInterval(iv);simulateScanResult();}
-  },120);
+  const file=input.files[0];
+  const reader=new FileReader();
+  reader.onload=e=>{
+    const base64=e.target.result.split(',')[1];
+    const mediaType=file.type||'image/jpeg';
+    analyseFacture(base64,mediaType);
+  };
+  reader.readAsDataURL(file);
+  input.value='';
 }
 
-function simulateScanResult(){
-  // In real app: calls OCR API then parses result
-  // Here we show manual entry pre-filled as "scanned"
-  scanStep=0;render();
-  toast('📄 Simulation : utilisez la saisie manuelle pour ajouter vos vrais produits');
-  setTimeout(showManualEntry,800);
+function analyseFacture(base64,mediaType){
+  scanStep=1;render();
+  // Animate progress bar
+  let p=0;
+  const iv=setInterval(()=>{
+    p+=2;
+    const pb=$('pbar');
+    if(pb)pb.style.width=Math.min(p,90)+'%';
+    if(p>=90)clearInterval(iv);
+  },200);
+
+  const prompt=`Tu es un assistant spécialisé en restauration professionnelle. Analyse cette photo de facture fournisseur et extrait TOUS les produits.
+
+Pour chaque produit trouvé, retourne un JSON valide (et UNIQUEMENT le JSON, sans texte autour) avec ce format exact :
+{
+  "fournisseur": "nom du fournisseur si visible, sinon vide",
+  "produits": [
+    {
+      "nom": "nom exact du produit",
+      "cat": "catégorie parmi : Poisson, Crèmerie, Légumes, Viande, Épicerie, Boissons, Autre",
+      "prix": "prix unitaire HT en chiffres uniquement (ex: 14.60)",
+      "unite": "unité (kg, L, u, boîte…)",
+      "quantite": "quantité commandée"
+    }
+  ]
+}
+
+Si tu ne vois pas clairement un champ, laisse-le vide. Extrait tous les produits visibles.`;
+
+  fetch('https://api.anthropic.com/v1/messages',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+    body:JSON.stringify({
+      model:'claude-opus-4-5-20251001',
+      max_tokens:1500,
+      messages:[{
+        role:'user',
+        content:[
+          {type:'image',source:{type:'base64',media_type:mediaType,data:base64}},
+          {type:'text',text:prompt}
+        ]
+      }]
+    })
+  })
+  .then(r=>r.json())
+  .then(d=>{
+    clearInterval(iv);
+    const pb=$('pbar');if(pb)pb.style.width='100%';
+    const text=d.content?.[0]?.text||'';
+    try{
+      const clean=text.replace(/```json|```/g,'').trim();
+      const data=JSON.parse(clean);
+      scanStep=0;render();
+      showScanResults(data);
+    }catch(e){
+      scanStep=0;render();
+      toast('⚠️ Facture peu lisible — essayez une meilleure photo','var(--orange)');
+    }
+  })
+  .catch(()=>{
+    clearInterval(iv);
+    scanStep=0;render();
+    toast('❌ Erreur réseau — vérifiez votre connexion','var(--red)');
+  });
+}
+
+function showScanResults(data){
+  const prods=data.produits||[];
+  if(!prods.length){toast('Aucun produit détecté — essayez une photo plus nette','var(--orange)');return;}
+  let rows=prods.map((p,i)=>`
+  <div style="background:var(--s2);border-radius:10px;padding:12px 14px;margin-bottom:8px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+      <input style="flex:1;background:var(--s3);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--cream);font-size:13px;font-family:'DM Sans',sans-serif" id="sr-nom-${i}" value="${p.nom||''}"/>
+      <select id="sr-cat-${i}" style="background:var(--s3);border:1px solid var(--border);border-radius:8px;padding:8px;color:var(--cream);font-size:12px;font-family:'DM Sans',sans-serif">
+        ${CATS.map(c=>`<option ${p.cat===c?'selected':''}>${c}</option>`).join('')}
+      </select>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+      <div><div style="font-size:10px;color:var(--muted);margin-bottom:3px">PRIX HT €</div><input id="sr-prix-${i}" type="number" step="0.01" value="${p.prix||''}" style="width:100%;background:var(--s3);border:1px solid var(--border);border-radius:8px;padding:7px 9px;color:var(--goldl);font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif"/></div>
+      <div><div style="font-size:10px;color:var(--muted);margin-bottom:3px">UNITÉ</div><input id="sr-unite-${i}" value="${p.unite||''}" style="width:100%;background:var(--s3);border:1px solid var(--border);border-radius:8px;padding:7px 9px;color:var(--cream);font-size:13px;font-family:'DM Sans',sans-serif"/></div>
+      <div><div style="font-size:10px;color:var(--muted);margin-bottom:3px">QTÉ</div><input id="sr-qt-${i}" value="${p.quantite||''}" style="width:100%;background:var(--s3);border:1px solid var(--border);border-radius:8px;padding:7px 9px;color:var(--cream);font-size:13px;font-family:'DM Sans',sans-serif"/></div>
+    </div>
+  </div>`).join('');
+
+  const html=`
+  <div class="handle"></div>
+  <div class="sheet-head">
+    <div style="font-size:22px">✅</div>
+    <div class="title">${prods.length} produit(s) détecté(s)</div>
+    <button class="cls" onclick="closeModal()">✕</button>
+  </div>
+  <div class="sheet-body">
+    <div style="font-size:13px;color:var(--muted);margin-bottom:14px">Fournisseur détecté : <strong style="color:var(--cream)">${data.fournisseur||'Non détecté'}</strong><br>Vérifiez et corrigez si nécessaire avant d'enregistrer.</div>
+    <div id="scan-rows">${rows}</div>
+    <button class="btn-gold" onclick="saveScanResults(${prods.length},'${(data.fournisseur||'').replace(/'/g,"\\'")}')">✅ Tout enregistrer dans la mercuriale</button>
+  </div>`;
+  openModal(html);
+}
+
+function saveScanResults(count,fournisseur){
+  let saved=0;
+  for(let i=0;i<count;i++){
+    const nom=document.getElementById(`sr-nom-${i}`)?.value.trim();
+    if(!nom)continue;
+    products.push({
+      nom,
+      cat:document.getElementById(`sr-cat-${i}`)?.value||'Autre',
+      fournisseur:fournisseur||'',
+      prix:parseFloat(document.getElementById(`sr-prix-${i}`)?.value||0).toFixed(2),
+      unite:document.getElementById(`sr-unite-${i}`)?.value||'',
+      trend:''
+    });
+    saved++;
+  }
+  save();closeModal();
+  toast(`✅ ${saved} produit(s) enregistré(s) dans la mercuriale`);
+  render();
 }
 
 // ═══════════════════════════════════════════
