@@ -416,30 +416,25 @@ function analyseFacture(base64,mediaType){
     if(p>=90)clearInterval(iv);
   },200);
 
-  const prompt=`Tu es un assistant spécialisé en restauration professionnelle. Analyse cette photo de facture fournisseur et extrait TOUS les produits.
+  const prompt=`Tu es un expert OCR spécialisé en factures de restauration (bons de livraison, tarifs fournisseurs, factures Métro/Pomona/Brake etc).
 
-Pour chaque produit trouvé, retourne un JSON valide (et UNIQUEMENT le JSON, sans texte autour) avec ce format exact :
-{
-  "fournisseur": "nom du fournisseur si visible, sinon vide",
-  "produits": [
-    {
-      "nom": "nom exact du produit",
-      "cat": "catégorie parmi : Poisson, Crèmerie, Légumes, Viande, Épicerie, Boissons, Autre",
-      "prix": "prix unitaire HT en chiffres uniquement (ex: 14.60)",
-      "unite": "unité (kg, L, u, boîte…)",
-      "quantite": "quantité commandée"
-    }
-  ]
-}
+MISSION : Lis cette image et extrait CHAQUE ligne produit visible. Même si l'image est imparfaite, fais de ton mieux.
 
-Si tu ne vois pas clairement un champ, laisse-le vide. Extrait tous les produits visibles.`;
+RÈGLE ABSOLUE : réponds UNIQUEMENT avec ce JSON, aucun texte avant ou après, jamais de commentaire sur la qualité :
+{"fournisseur":"nom fournisseur ou vide","produits":[{"nom":"nom produit","cat":"Poisson|Crèmerie|Légumes|Viande|Épicerie|Boissons|Autre","prix":"prix unitaire HT chiffres ex:14.60","unite":"kg|L|u|boite|piece","quantite":"ex:5"}]}
+
+Règles :
+- prix = prix UNITAIRE HT, chiffres seuls, pas de symbole €
+- Si un champ est illisible mets ""
+- Extrait TOUS les produits sans exception
+- Ne JAMAIS mentionner la qualité de l'image dans ta réponse`;
 
   fetch('https://api.anthropic.com/v1/messages',{
     method:'POST',
     headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
     body:JSON.stringify({
-      model:'claude-opus-4-5-20251001',
-      max_tokens:1500,
+      model:'claude-sonnet-4-6',
+      max_tokens:2000,
       messages:[{
         role:'user',
         content:[
